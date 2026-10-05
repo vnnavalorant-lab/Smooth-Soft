@@ -1,4 +1,4 @@
-# Smooth / Soft Terrain v2 (Fabric 1.21.11)
+# Smooth / Soft Terrain v3 (Fabric 1.21.11)
 
 Filtro de terraformagem aplicado **durante a geração do chunk**, no heightmap (não em blocos soltos).
 
@@ -46,3 +46,28 @@ voar em Spectator e ligar `debug_visualization`. Se ainda estiver fraco, use VER
 `NoiseChunkGenerator.buildSurface(ChunkRegion, StructureAccessor, NoiseConfig, Chunk)` (descritor do mixin),
 `Blender.getBlender(ChunkRegion)`/`getNoBlending()`, `StructureAccessor.getStructureStarts(ChunkPos, Predicate)`,
 `StructureStart.getChildren()`, `Chunk.getBiomeForNoiseGen`, `Heightmap.trackUpdate`. `./gradlew genSources` mostra os reais.
+
+
+---
+## v3 — terreno contínuo, andável e sem buracos (modo padrão: SOFT_WORLD)
+
+| Regra pedida | Como o mod faz | Config |
+|---|---|---|
+| Inclinações suaves / sem quedas de 1-5 blocos | Limitador de slope (erosão térmica) no campo suavizado, 6 iterações; onde o terreno original passa do limite o resultado segue o campo suavizado. Penhascos longos e coerentes toleram ~3x mais | `max_slope` (0.7) |
+| Sem poços / depressões súbitas | Colunas bem abaixo da superfície suave ao redor (2-8 blocos) são preenchidas; depressões muito fundas (>~12) são tratadas como abertura intencional | `fill_pits` |
+| Terreno sempre apoiado, sem fragmentos flutuantes | Se o topo sólido tem < N blocos e há vazio de AR logo abaixo, o vazio é preenchido de cima p/ baixo (cavernas grandes ficam, com teto mais grosso) | `min_surface_support` (5) |
+| Sem buracos de caverna "sem sentido" na superfície | Depois dos carvers: buracos pequenos (<= 36 colunas, sem tocar a borda do chunk) são fechados com terreno + cobertura do vizinho. Bocas grandes e ravinas ficam | `seal_surface_holes`, `max_sealed_hole_area` |
+| Ruído de baixa frequência | Bandas finas (micro/ruído) quase removidas; macro/regional preservadas | `mode` |
+
+Modos: SUBTLE · NATURAL · STRONG_NATURAL · VERY_SMOOTH · **SOFT_WORLD** (padrão) · CUSTOM · OFF.
+Configs antigas (v1/v2) são substituídas automaticamente.
+
+Medido no terreno sintético (SOFT_WORLD, 3 seeds): degraus >=2 blocos 10-20% -> <2% dos pares de colunas,
+degraus >=3 blocos ~4% -> ~0,1%, rugosidade -46% a -62%, altura média +-0,4, pico mais alto -2% a -8%, emenda 0.
+
+Limitações honestas: rios/oceanos/lagos não são remodelados (fundo de rio continua vanilla; margens
+suavizam só do lado terra); terreno a < 2 blocos do nível do mar fica intocado; a selagem pós-carver
+usa o tamanho do buraco dentro do chunk (buracos que cruzam a borda são mantidos); biomas de pico/badlands
+têm intensidade reduzida (`biome_factors`).
+
+Mixin novo: `ChunkGenerator.carve(...)` (require=0: se a assinatura diferir, só a selagem some, o resto funciona).
