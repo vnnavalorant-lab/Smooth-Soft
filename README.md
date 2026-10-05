@@ -71,3 +71,11 @@ usa o tamanho do buraco dentro do chunk (buracos que cruzam a borda são mantido
 têm intensidade reduzida (`biome_factors`).
 
 Mixin novo: `ChunkGenerator.carve(...)` (require=0: se a assinatura diferir, só a selagem some, o resto funciona).
+
+---
+## Como compilar
+- **GitHub Actions:** `.github/workflows/build.yml` ja esta incluido (instala o Gradle no runner; nao precisa de `gradlew`).
+  O jar fica em Actions -> execucao -> Artifacts.
+- **Local:** Java 21 + Gradle instalado -> `gradle build` -> `build/libs/smoothsoftterrain-1.0.0.jar`.
+  (Opcional: `gradle wrapper` cria o gradlew.)
+- **Testes do algoritmo:** `gradle test`.
