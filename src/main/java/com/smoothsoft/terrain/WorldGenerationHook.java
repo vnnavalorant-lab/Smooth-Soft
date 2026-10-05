@@ -89,9 +89,8 @@ public final class WorldGenerationHook {
         }
     }
 
-    /** Chamado no fim da etapa de carvers: fecha buracos pequenos de superficie. */
-    public static void applyAfterCarve(NoiseChunkGenerator gen, ChunkRegion region, NoiseConfig nc,
-                                       StructureAccessor sa, Chunk chunk) {
+    /** Chamado no inicio da etapa de features (logo apos os carvers): fecha buracos pequenos de superficie. */
+    public static void applyAfterCarve(NoiseChunkGenerator gen, StructureAccessor sa, Chunk chunk) {
         TerrainConfig cfg = TerrainConfig.get();
         short[] planned = PLANNED.remove(key(chunk));
         if (planned == null || !cfg.isActive() || !cfg.seal_surface_holes) return;

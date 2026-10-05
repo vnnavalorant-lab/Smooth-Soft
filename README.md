@@ -70,7 +70,7 @@ suavizam só do lado terra); terreno a < 2 blocos do nível do mar fica intocado
 usa o tamanho do buraco dentro do chunk (buracos que cruzam a borda são mantidos); biomas de pico/badlands
 têm intensidade reduzida (`biome_factors`).
 
-Mixin novo: `ChunkGenerator.carve(...)` (require=0: se a assinatura diferir, só a selagem some, o resto funciona).
+Mixin da selagem: `ChunkGenerator.generateFeatures(...)` em HEAD (logo após os carvers). Um TAIL em `carve` causou crash no 1.21.11 (sem RETURN para ancorar).
 
 ---
 ## Como compilar
