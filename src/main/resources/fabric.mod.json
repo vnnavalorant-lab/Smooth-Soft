@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "smoothsoftterrain",
+  "version": "${version}",
+  "name": "Smooth / Soft Terrain",
+  "description": "Suaviza seletivamente a geometria do terreno durante a geracao de chunks novos, preservando biomas, altura, estruturas, cavernas e agua.",
+  "authors": ["SmoothSoft"],
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": { "main": ["com.smoothsoft.terrain.SmoothSoftTerrainMod"] },
+  "mixins": ["smoothsoftterrain.mixins.json"],
+  "depends": {
+    "fabricloader": ">=0.18.1",
+    "minecraft": "~1.21.11",
+    "java": ">=21"
+  }
+}

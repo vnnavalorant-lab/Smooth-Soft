@@ -1,0 +1,7 @@
+{
+  "required": true,
+  "package": "com.smoothsoft.terrain.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": ["NoiseChunkGeneratorMixin", "ChunkGeneratorMixin"],
+  "injectors": { "defaultRequire": 1 }
+}
