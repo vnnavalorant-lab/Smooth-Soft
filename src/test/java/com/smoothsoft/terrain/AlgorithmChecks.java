@@ -48,12 +48,12 @@ public final class AlgorithmChecks {
         for (int i = 0; i < 5; i++) for (int j = 0; j < 5; j++) o[i][j] = f[m + i][m + j];
         return o;
     }
-    record ChunkNodes(double[][] raw, double[][] hs, double[][] s) {}
+    record ChunkNodes(double[][] raw, double[][] hs, double[][] s, double[][] t) {}
     static ChunkNodes nodes(long seed, int cx, int cz, SmoothParams p, int margin) {
         double[][] R = window(seed, cx, cz, margin);
         var a = TerrainAnalyzer.analyze(R, p);
-        var f = TerrainSmoother.smooth(R, a, p, null);
-        return new ChunkNodes(inner(R, margin), inner(f.hs, margin), inner(f.strength, margin));
+        var f = TerrainSmoother.smooth(R, a, p, null, null, (cx * 4 - margin) * 4.0, (cz * 4 - margin) * 4.0, SEA);
+        return new ChunkNodes(inner(R, margin), inner(f.hs, margin), inner(f.strength, margin), inner(f.terrace, margin));
     }
 
     // ---------- checks ----------
@@ -90,7 +90,7 @@ public final class AlgorithmChecks {
                          double changedPct, double roughOrig, double roughFinal,
                          double maxOrig, double maxFinal, double seamStepOrig, double seamStepFinal,
                          double steps2Orig, double steps2Final, double steps3Orig, double steps3Final,
-                         int pitsOrig, int pitsFinal) {}
+                         int pitsOrig, int pitsFinal, double treadOrig, double treadFinal) {}
 
     public static Report compare(long seed, SmoothParams p, int chunks, int maxDelta) {
         int margin = p.requiredMargin();
@@ -109,7 +109,9 @@ public final class AlgorithmChecks {
                         double hb = ChunkBoundaryBlender.lerp2(c.hs, lx, lz);
                         double sb = ChunkBoundaryBlender.lerp2(c.s, lx, lz);
                         double ramp = TerrainMath.clamp01((cur - SEA - 2) / 4.0);
-                        double d = TerrainSmoother.finalHeight(cur, rb, hb, sb, p.detailKeep(), ramp, true) - cur;
+                        double tb = ChunkBoundaryBlender.lerp2(c.t, lx, lz);
+                        double d = TerrainSmoother.finalHeight(cur, rb, hb, sb, tb, p.detailKeep(), ramp, true,
+                            p.terraceStep(), TerrainSmoother.terraceOffset(x, z, Math.max(1, p.terraceStep()))) - cur;
                         fin[x][z] = cur + Math.round(TerrainMath.clamp(d, -maxDelta, maxDelta));
                     }
                 }
@@ -140,8 +142,31 @@ public final class AlgorithmChecks {
             }
         }
         double pairs = 2 * cnt;
+        double trO = treadRun(orig, lo, hi), trF = treadRun(fin, lo, hi);
         return new Report(so / cnt, sf / cnt, sa / cnt, mx, 100 * chg / cnt, ro / cnt, rf / cnt, mo, mf,
-            stO / stN, stF / stN, 100 * s2o / pairs, 100 * s2f / pairs, 100 * s3o / pairs, 100 * s3f / pairs, pitO, pitF);
+            stO / stN, stF / stN, 100 * s2o / pairs, 100 * s2f / pairs, 100 * s3o / pairs, 100 * s3f / pairs, pitO, pitF, trO, trF);
+    }
+
+    /** Em encostas suaves (inclinacao 0.10-0.45 em 8 blocos): comprimento medio (blocos) dos patamares planos ao longo de x e z. */
+    static double treadRun(double[][] h, int lo, int hi) {
+        double sum = 0; int runs = 0;
+        for (int dir = 0; dir < 2; dir++) {
+            for (int a = lo; a < hi; a++) {
+                int start = lo;
+                for (int b = lo + 1; b <= hi; b++) {
+                    double v = dir == 0 ? h[b < hi ? b : hi - 1][a] : h[a][b < hi ? b : hi - 1];
+                    double sv = dir == 0 ? h[start][a] : h[a][start];
+                    if (b == hi || v != sv) {
+                        int mid = (start + b - 1) / 2;
+                        double g = dir == 0 ? Math.abs(h[mid + 4][a] - h[mid - 4][a]) / 8.0
+                                            : Math.abs(h[a][mid + 4] - h[a][mid - 4]) / 8.0;
+                        if (g >= 0.10 && g <= 0.45 && sv > SEA + 5) { sum += b - start; runs++; }
+                        start = b;
+                    }
+                }
+            }
+        }
+        return runs == 0 ? 0 : sum / runs;
     }
 
     /** coluna pelo menos 2 blocos abaixo de TODOS os 4 vizinhos */
@@ -151,11 +176,12 @@ public final class AlgorithmChecks {
     }
 
     static final Object[][] MODES = {
-        {"SUBTLE",         SmoothParams.of(0.30,  8, 16, 28, 0.45, 1.4)},
-        {"NATURAL",        SmoothParams.of(0.45, 10, 20, 32, 0.38, 1.1)},
-        {"STRONG_NATURAL", SmoothParams.of(0.65, 12, 24, 40, 0.30, 0.9)},
-        {"VERY_SMOOTH",    SmoothParams.of(0.85, 14, 28, 44, 0.22, 0.7)},
-        {"SOFT_WORLD",     SmoothParams.of(0.90, 16, 32, 46, 0.12, 0.7)},
+        {"SUBTLE",         SmoothParams.of(0.30,  8, 16, 28, 0.45, 1.4, 0, 0.0, 5.0)},
+        {"NATURAL",        SmoothParams.of(0.45, 10, 20, 32, 0.38, 1.1, 1, 0.35, 5.0)},
+        {"STRONG_NATURAL", SmoothParams.of(0.65, 12, 24, 40, 0.30, 0.9, 1, 0.60, 5.0)},
+        {"VERY_SMOOTH",    SmoothParams.of(0.85, 14, 28, 44, 0.22, 0.7, 1, 0.75, 5.0)},
+        {"SOFT_WORLD",     SmoothParams.of(0.90, 16, 32, 46, 0.12, 0.7, 1, 0.85, 5.0)},
+        {"SOFT sem terraco", SmoothParams.of(0.90, 16, 32, 46, 0.12, 0.7, 0, 0.0, 5.0)},
     };
 
     public static void main(String[] args) {
@@ -166,10 +192,10 @@ public final class AlgorithmChecks {
                 m[0], margin, margin * 4, seamError(42, p, margin));
             for (long seed : new long[] {1, 42, 777}) {
                 Report r = compare(seed, p, 16, 24);
-                System.out.printf("  seed %-3d media %.1f->%.1f | |mud| %.2f max %.0f | rugos. -%.0f%% | pico %.0f->%.0f | degraus>=2: %.1f%%->%.1f%% >=3: %.1f%%->%.1f%% | pocos %d->%d%n",
+                System.out.printf("  seed %-3d media %.1f->%.1f | |mud| %.2f max %.0f | rugos. -%.0f%% | pico %.0f->%.0f | degraus>=2: %.1f%%->%.1f%% >=3: %.1f%%->%.1f%% | pocos %d->%d | patamar medio: %.1f->%.1f blocos%n",
                     seed, r.meanOrig, r.meanFinal, r.meanAbsChange, r.maxAbsChange,
                     100 * (1 - r.roughFinal / r.roughOrig), r.maxOrig, r.maxFinal,
-                    r.steps2Orig, r.steps2Final, r.steps3Orig, r.steps3Final, r.pitsOrig, r.pitsFinal);
+                    r.steps2Orig, r.steps2Final, r.steps3Orig, r.steps3Final, r.pitsOrig, r.pitsFinal, r.treadOrig, r.treadFinal);
             }
         }
     }

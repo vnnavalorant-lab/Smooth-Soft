@@ -20,7 +20,7 @@ final class TerrainRemodeler {
     private TerrainRemodeler() {}
 
     static void apply(NoiseChunkGenerator gen, Chunk chunk, double[][] raw, double[][] hs, double[][] st,
-                      StructureProtection sp, TerrainConfig cfg, SmoothParams params, int sea, ChunkStats stats) {
+                      double[][] tr, StructureProtection sp, TerrainConfig cfg, SmoothParams params, int sea, ChunkStats stats) {
         BlockState fill = gen.getSettings().value().defaultBlock();
         Heightmap floor = chunk.getHeightmap(Heightmap.Type.OCEAN_FLOOR_WG);
         Heightmap surf = chunk.getHeightmap(Heightmap.Type.WORLD_SURFACE_WG);
@@ -44,10 +44,12 @@ final class TerrainRemodeler {
                 double rb = ChunkBoundaryBlender.lerp2(raw, lx, lz);
                 double hb = ChunkBoundaryBlender.lerp2(hs, lx, lz);
                 double sb = ChunkBoundaryBlender.lerp2(st, lx, lz);
+                double tb = ChunkBoundaryBlender.lerp2(tr, lx, lz);
                 stats.sumStrength += sb;
                 double ramp = cfg.preserve_water ? TerrainMath.clamp01((cur - sea - 2) / 4.0) : 1.0;
 
-                double d = TerrainSmoother.finalHeight(cur, rb, hb, sb, params.detailKeep(), ramp * sf, cfg.fill_pits) - cur;
+                double d = TerrainSmoother.finalHeight(cur, rb, hb, sb, tb, params.detailKeep(), ramp * sf, cfg.fill_pits,
+                    params.terraceStep(), TerrainSmoother.terraceOffset(x, z, Math.max(1, params.terraceStep()))) - cur;
                 int step = (int) Math.round(TerrainMath.clamp(d, -maxDelta, maxDelta));
                 int applied = 0;
 

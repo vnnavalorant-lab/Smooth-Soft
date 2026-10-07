@@ -17,6 +17,7 @@ final class TerrainSmoother {
         double[][] hs;        // altura suavizada alvo (nos)
         double[][] strength;  // forca do blend com o original, 0..0.92 (nos)
         double[][] irr;
+        double[][] terrace;   // 0..1: quanto aquele no virou terraco
     }
 
     // retencao de cada banda em [terreno ja bom (e=0) , terreno muito quebrado (e=1)]
@@ -30,8 +31,12 @@ final class TerrainSmoother {
         return TerrainMath.clamp01(1.0 - (1.0 - base) * f);
     }
 
-    /** biome: fator 0..1 por no (ou null = 1). */
-    static Fields smooth(double[][] R, TerrainAnalyzer.Analysis a, SmoothParams p, double[][] biome) {
+    /**
+     * biome: fator 0..1 por no (ou null = 1); terraceScale: 0..1 por no (ou null = 1);
+     * ox/oz: coordenada de MUNDO (blocos) do no [0][0]; sea: nivel do mar.
+     */
+    static Fields smooth(double[][] R, TerrainAnalyzer.Analysis a, SmoothParams p, double[][] biome,
+                         double[][] terraceScale, double ox, double oz, int sea) {
         int n = R.length;
         double f = p.strengthFactor();
         Fields out = new Fields();
@@ -71,8 +76,62 @@ final class TerrainSmoother {
                 out.strength[x][z] = Math.min(0.92, s);
             }
         }
-        limitSlopes(out.hs, prot, p.maxSlope());
+        applyTerraces(out, prot, p, terraceScale, ox, oz, sea);
+        // nas zonas de terraco a inclinacao alvo e a do patamar (ex.: degrau de 1 bloco a cada ~5 blocos)
+        double[][] lim = new double[n][n];
+        double tgt = Math.min(p.maxSlope(), p.terraceSlope());
+        for (int x = 0; x < n; x++)
+            for (int z = 0; z < n; z++) {
+                double t = out.terrace[x][z];
+                lim[x][z] = p.maxSlope() * (1.0 - t) + tgt * t;
+            }
+        limitSlopes(out.hs, prot, lim);
         return out;
+    }
+
+    /** Patamares de altura s com degrau suave (riser 40% do ciclo, centrado; 60% e patamar plano), media preservada. */
+    static double terrace(double h, double s) {
+        double u = h / s, k = Math.floor(u), f = u - k;
+        return s * (k + TerrainMath.smoothstep((f - 0.30) / 0.40));
+    }
+
+    /** Deslocamento (blocos) de baixa frequencia que torna os contornos dos terracos irregulares. */
+    static double terraceOffset(double wx, double wz, double step) {
+        return 0.6 * step * (2.0 * NoiseUtil.fbm(wx / 90.0 + 17, wz / 90.0 - 31) - 1.0);
+    }
+
+    /**
+     * Terracos largos: calcula, por no, QUANTO terraco aplicar (T, 0..1): encosta suave (nem plano nem
+     * ingreme), longe da costa, dentro de manchas de baixa frequencia (o resto fica rampa continua).
+     * O degrau em si e aplicado por coluna em finalHeight (resolucao de bloco => patamares realmente planos).
+     * Nos de encosta suave (nem plano nem ingreme) sao puxados para patamares
+     * horizontais. O deslocamento `off` (ruido de baixa frequencia, em coordenadas de mundo) faz os
+     * contornos serem irregulares e a largura variar; a mascara `mask` deixa trechos so com rampa continua.
+     * Os degraus resultantes ainda passam pelo limitador de slope (rampas andaveis).
+     */
+    private static void applyTerraces(Fields out, double[][] prot, SmoothParams p, double[][] scale,
+                                      double ox, double oz, int sea) {
+        int n = out.hs.length;
+        out.terrace = new double[n][n];
+        if (p.terraceStep() <= 0 || p.terraceStrength() <= 0) return;
+        double[][] src = new double[n][];
+        for (int i = 0; i < n; i++) src[i] = out.hs[i].clone();
+        for (int x = 0; x < n; x++) {
+            for (int z = 0; z < n; z++) {
+                double h = src[x][z];
+                double wx = ox + x * 4.0, wz = oz + z * 4.0;
+                double gx = (GridMath.at(src, x + 1, z) - GridMath.at(src, x - 1, z)) / 8.0;
+                double gz = (GridMath.at(src, x, z + 1) - GridMath.at(src, x, z - 1)) / 8.0;
+                double grad = Math.hypot(gx, gz);
+                double bell = TerrainMath.smoothstep((grad - 0.04) / 0.10)
+                            * (1.0 - TerrainMath.smoothstep((grad - 0.70) / 0.50));
+                double mask = TerrainMath.smoothstep((NoiseUtil.vnoise(wx / 140.0 + 5, wz / 140.0 + 9) - 0.15) / 0.35);
+                double seaGate = TerrainMath.smoothstep((h - sea - 3) / 6.0);
+                double sc = scale == null ? 1.0 : scale[x][z];
+                double t = p.terraceStrength() * mask * bell * (1.0 - prot[x][z]) * seaGate * sc;
+                out.terrace[x][z] = t;
+            }
+        }
     }
 
     /**
@@ -80,7 +139,7 @@ final class TerrainSmoother {
      * maxSlope * distancia, ambos andam um em direcao ao outro (soma conservada => media preservada).
      * Penhascos coerentes (prot alto) tolerados ate ~3x mais ingremes. SLOPE_ITERS iteracoes.
      */
-    static void limitSlopes(double[][] h, double[][] prot, double maxSlope) {
+    static void limitSlopes(double[][] h, double[][] prot, double[][] maxSlope) {
         int n = h.length;
         int[][] dirs = {{1, 0}, {0, 1}, {1, 1}, {1, -1}};
         double[][] d = new double[n][n];
@@ -92,11 +151,11 @@ final class TerrainSmoother {
                         int x2 = x + dir[0], z2 = z + dir[1];
                         if (x2 < 0 || z2 < 0 || x2 >= n || z2 >= n) continue;
                         double dist = HEIGHT_CELL * (dir[0] != 0 && dir[1] != 0 ? Math.sqrt(2) : 1.0);
-                        double lim = maxSlope * dist * (1.0 + 2.0 * Math.max(prot[x][z], prot[x2][z2]));
+                        double lim = Math.min(maxSlope[x][z], maxSlope[x2][z2]) * dist * (1.0 + 2.0 * Math.max(prot[x][z], prot[x2][z2]));
                         double diff = h[x][z] - h[x2][z2];
                         double ex = Math.abs(diff) - lim;
                         if (ex <= 0) continue;
-                        double t = 0.2 * ex * Math.signum(diff);
+                        double t = 0.12 * ex * Math.signum(diff); // 8 vizinhos x 0.12 < 1: estavel (sem oscilacao)
                         d[x][z] -= t;
                         d[x2][z2] += t;
                     }
@@ -113,9 +172,10 @@ final class TerrainSmoother {
      * cur = altura original da coluna; rb/hb/sb = cru/suavizado/forca interpolados nesse ponto.
      * O detalhe fino (cur - rb) e parcialmente restaurado dentro do Smooth.
      */
-    static double finalHeight(double cur, double rb, double hb, double sb, double detailKeep,
-                              double gate, boolean fillPits) {
-        double s = sb;
+    static double finalHeight(double cur, double rb, double hb, double sb, double tb, double detailKeep,
+                              double gate, boolean fillPits, int terraceStep, double terraceOff) {
+        double s = Math.max(sb, 0.97 * tb);          // onde ha terraco, segue o campo suavizado quase por inteiro
+        double dk = detailKeep * (1.0 - tb);          // e sem ruido fino para os patamares ficarem planos
         if (fillPits) {
             // poco/buraco: coluna bem abaixo da superficie suave ao redor. Preenche ate a superficie,
             // mas depressoes MUITO fundas (>~12) sao tratadas como aberturas intencionais (caverna/ravina).
@@ -124,7 +184,11 @@ final class TerrainSmoother {
             s = Math.max(s, 0.95 * pit);
         }
         s *= gate;
-        double smoothCol = hb + detailKeep * (cur - rb);
+        double smoothCol = hb + dk * (cur - rb);
+        if (terraceStep > 0 && tb > 0.0) {
+            // patamares planos (multiplos de terraceStep) ligados por rampas curtas; contornos deslocados por ruido
+            smoothCol += tb * (terrace(smoothCol + terraceOff, terraceStep) - smoothCol);
+        }
         return cur + s * (smoothCol - cur);
     }
 }

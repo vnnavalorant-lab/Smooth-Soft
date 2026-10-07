@@ -79,3 +79,40 @@ Mixin da selagem: `ChunkGenerator.generateFeatures(...)` em HEAD (logo após os 
 - **Local:** Java 21 + Gradle instalado -> `gradle build` -> `build/libs/smoothsoftterrain-1.0.0.jar`.
   (Opcional: `gradle wrapper` cria o gradlew.)
 - **Testes do algoritmo:** `gradle test`.
+
+
+---
+## v3.3 — terraços como na imagem de referência
+
+A referência mostra uma encosta de **degraus de 1 bloco de altura com patamares de grama de ~4-6 blocos de largura**,
+contornos curvos acompanhando o morro e nenhum degrau de 2+ blocos. O mod agora mira exatamente isso:
+
+- `terrace_step` = **1** (degrau de 1 bloco). Nas zonas de terraço o resultado segue o campo suavizado quase por inteiro
+  e sem ruído fino, então o arredondamento da altura gera linhas de contorno limpas e patamares planos.
+- `terrace_tread_width` = 5: a inclinação alvo nas zonas de terraço é `step / largura` (0,2); o limitador de slope
+  (12 iterações, relaxação estável) puxa as encostas para perto disso, sem forçar montanhas íngremes nem cliffs longos.
+- Zonas de terraço: encostas suaves (nem planas nem íngremes), longe da costa, em manchas de baixa frequência (o resto
+  fica rampa contínua). Desertos/badlands/praias recebem 30% do efeito.
+- `terrace_step` maior (2-4) dá patamares mais altos; `terrace_enabled:false` desliga tudo.
+- Config antiga substituída automaticamente (versão 5). Só chunks NOVOS são alterados.
+
+Medido (terreno sintético, SOFT_WORLD): degraus de 2+ blocos 10-20% -> ~1%; degraus de 3+ blocos ~0-0,4%;
+patamar médio 1,8-2,3 -> 2,9-3,3 blocos; rugosidade -48% a -65%; altura média preservada; emenda entre chunks = 0.
+Nota: um patamar de 1 bloco ainda exige um pulo a cada degrau (a própria referência é assim); o mod só os torna
+largos, regulares e sem quedas maiores.
+
+## v3.2 — terraços largos e suaves
+
+- Nós de encosta suave (nem plano nem íngreme), longe da costa e dentro de manchas de baixa frequência
+  recebem **terraço**: a altura vira patamares planos (múltiplos de `terrace_step`, padrão 4) ligados por rampas curtas.
+  O degrau é aplicado **por bloco** (patamares realmente planos) e os contornos são deslocados por ruído de mundo
+  (irregulares, larguras variáveis). Trechos fora das manchas ficam como rampa contínua.
+- Desertos/badlands/praias recebem só 30% do efeito (dunas suaves, sem "degraus de grama"). Planícies quase planas e
+  montanhas íngremes não são terraceadas.
+- Config: `terrace_enabled` (todos os modos), `terrace_step`, `terrace_strength` (esses dois só em CUSTOM).
+- Medido (terreno sintético, SOFT_WORLD): colunas de encosta em patamar 24% -> 39-49%; degraus de 3+ blocos ~0,1-0,4%;
+  rugosidade -46% a -57%; altura média preservada; emenda entre chunks = 0.
+
+**Mundos existentes:** só chunks NOVOS são alterados (chunks já gerados nunca são tocados). Para ver o efeito inteiro, crie um mundo novo.
+**Abordagem:** o filtro age no heightmap durante a geração do chunk (logo após o surface builder), não na função de densidade
+do NoiseRouter. Reescrever a densidade exige substituir JSONs/density functions do vanilla e não pode ser validado sem rodar o jogo.

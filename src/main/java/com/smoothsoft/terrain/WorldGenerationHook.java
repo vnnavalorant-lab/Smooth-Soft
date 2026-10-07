@@ -52,23 +52,30 @@ public final class WorldGenerationHook {
             var analysis = TerrainAnalyzer.analyze(R, params);
             int n = R.length;
             double[][] biome = new double[n][n];
+            double[][] tscale = new double[n][n];
             for (double[] row : biome) java.util.Arrays.fill(row, 1.0);
+            for (double[] row : tscale) java.util.Arrays.fill(row, 1.0);
+            java.util.Set<String> noGrass = new java.util.HashSet<>(cfg.no_grass_biomes);
             int minX = chunk.getPos().getStartX(), minZ = chunk.getPos().getStartZ();
             for (int i = 0; i < HeightmapSampler.INNER; i++) {
                 for (int j = 0; j < HeightmapSampler.INNER; j++) {
                     int x = minX + i * HeightmapSampler.CELL, z = minZ + j * HeightmapSampler.CELL;
                     int y = (int) R[margin + i][margin + j];
-                    biome[margin + i][margin + j] = BiomeProtection.factor(
-                        gen.getBiomeSource().getBiome(x >> 2, y >> 2, z >> 2, nc.getMultiNoiseSampler()), cfg);
+                    var biomeEntry = gen.getBiomeSource().getBiome(x >> 2, y >> 2, z >> 2, nc.getMultiNoiseSampler());
+                    biome[margin + i][margin + j] = BiomeProtection.factor(biomeEntry, cfg);
+                    // desertos/badlands/praias: dunas e encostas suaves, sem "degraus de grama"
+                    if (noGrass.contains(BiomeProtection.id(biomeEntry))) tscale[margin + i][margin + j] = 0.3;
                 }
             }
-            var fields = TerrainSmoother.smooth(R, analysis, params, biome);
+            var fields = TerrainSmoother.smooth(R, analysis, params, biome, tscale,
+                minX - margin * HeightmapSampler.CELL, minZ - margin * HeightmapSampler.CELL, sea);
 
-            double[][] raw5 = inner(R, margin), hs5 = inner(fields.hs, margin), st5 = inner(fields.strength, margin);
+            double[][] raw5 = inner(R, margin), hs5 = inner(fields.hs, margin), st5 = inner(fields.strength, margin),
+                tr5 = inner(fields.terrace, margin);
             // 3b) terreno sempre apoiado (fecha vazios finos / fragmentos flutuantes) -- antes do preenchimento de pocos
             SurfaceSupportPass.run(gen, chunk, sp, cfg, sea, stats);
             // 4) blended + final: aplica ao chunk (inclui limite de slope e preenchimento de pocos)
-            TerrainRemodeler.apply(gen, chunk, raw5, hs5, st5, sp, cfg, params, sea, stats);
+            TerrainRemodeler.apply(gen, chunk, raw5, hs5, st5, tr5, sp, cfg, params, sea, stats);
             // 5) cobertura de grama nas superficies expostas
             if (cfg.surface_grass_pass) SurfaceValidationPass.run(chunk, sp, cfg, sea, stats);
 

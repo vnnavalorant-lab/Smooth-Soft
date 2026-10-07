@@ -17,7 +17,7 @@ import net.fabricmc.loader.api.FabricLoader;
 
 /** config/smoothsoftterrain.json. Campos publicos em snake_case para o Gson. */
 public final class TerrainConfig {
-    private static final int CONFIG_VERSION = 3;
+    private static final int CONFIG_VERSION = 5;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static volatile TerrainConfig instance = new TerrainConfig();
 
@@ -33,6 +33,13 @@ public final class TerrainConfig {
     public double detail_keep = 0.30;
     /** Inclinacao maxima desejada (blocos de altura por bloco horizontal). */
     public double max_slope = 0.70;
+    /** Terracos largos e suaves (patamares horizontais ligados por rampas). Vale para todos os modos. */
+    public boolean terrace_enabled = true;
+    /** Altura (blocos) de cada patamar (1 = como a referencia) e intensidade 0..1 (CUSTOM). */
+    public int terrace_step = 1;
+    public double terrace_strength = 0.9;
+    /** Largura media (blocos) de cada patamar; define a inclinacao alvo = step / largura. */
+    public double terrace_tread_width = 5.0;
     /** Preenche pocos/buracos de superficie (depressoes rasas e isoladas). */
     public boolean fill_pits = true;
     /** Espessura minima de terreno solido sob a superficie (fecha vazios finos / fragmentos flutuantes). */
@@ -94,14 +101,20 @@ public final class TerrainConfig {
     }
 
     public SmoothParams params() {
+        SmoothParams p = rawParams();
+        return terrace_enabled ? p : new SmoothParams(p.microR(), p.localR(), p.regionalR(), p.macroR(),
+            p.strengthFactor(), p.detailKeep(), p.maxSlope(), 0, 0.0, 5.0);
+    }
+
+    private SmoothParams rawParams() {
         return switch (modeUpper()) {
-            case "SUBTLE" -> SmoothParams.of(0.30, 8, 16, 28, 0.45, 1.4);
-            case "NATURAL" -> SmoothParams.of(0.45, 10, 20, 32, 0.38, 1.1);
-            case "STRONG_NATURAL" -> SmoothParams.of(0.65, 12, 24, 40, 0.30, 0.9);
-            case "VERY_SMOOTH" -> SmoothParams.of(0.85, 14, 28, 44, 0.22, 0.7);
+            case "SUBTLE" -> SmoothParams.of(0.30, 8, 16, 28, 0.45, 1.4, 0, 0.0, 5.0);
+            case "NATURAL" -> SmoothParams.of(0.45, 10, 20, 32, 0.38, 1.1, 1, 0.35, 5.0);
+            case "STRONG_NATURAL" -> SmoothParams.of(0.65, 12, 24, 40, 0.30, 0.9, 1, 0.60, 5.0);
+            case "VERY_SMOOTH" -> SmoothParams.of(0.85, 14, 28, 44, 0.22, 0.7, 1, 0.75, 5.0);
             case "CUSTOM" -> SmoothParams.of(effectiveStrength(), radius, regional_radius, macro_radius,
-                TerrainMath.clamp01(detail_keep), max_slope);
-            default -> SmoothParams.of(0.90, 16, 32, 46, 0.12, 0.7); // SOFT_WORLD
+                TerrainMath.clamp01(detail_keep), max_slope, terrace_step, terrace_strength, terrace_tread_width);
+            default -> SmoothParams.of(0.90, 16, 32, 46, 0.12, 0.7, 1, 0.9, 5.0); // SOFT_WORLD
         };
     }
 
